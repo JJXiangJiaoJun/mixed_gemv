@@ -187,7 +187,6 @@ int main() {
   int M = 151936, K = 2048;
   // int M = 2048, K = 11008;
   // int M = 11008, K = 2048;
-  // int M = 2048, K = 2048;
 
   int group_size = 128;
 
@@ -231,7 +230,7 @@ int main() {
   if constexpr (QuantOp == cutlass::WeightOnlyQuantOp::FINEGRAINED_SCALE_AND_ZEROS) {
     reference::random_initializer<ElementZero>::init(h_zero_point, total_group * M, -8, 7);
   } else {
-    reference::random_initializer<ElementZero>::init(h_zero_point, total_group * M, 0);
+    reference::random_initializer<ElementZero>::init(h_zero_point, total_group * M, 0, 0);
   }
 
   ///< zero-point preprocess
@@ -276,7 +275,7 @@ int main() {
   cudaMemcpy(d_zero_point, h_neg_zeros_x_scales, total_group * M * sizeof(ElementScaleZero), cudaMemcpyHostToDevice);
 
 
-  for (int i = 0; i < 10; i++)
+  for (int i = 0; i < 20; i++)
   device_gemv(d_A, d_B, d_scale, d_zero_point, nullptr, d_D, B, M, kGemmN, K, group_size);
 
   cudaMemcpy(result_D, d_D, B * M * kGemmN * sizeof(ElementC), cudaMemcpyDeviceToHost);
