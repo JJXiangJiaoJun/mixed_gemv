@@ -23,6 +23,9 @@ template <
   /// Iterates over tiles of B operand in global memory
   //  (concept: ReadableTileIterator | ForwardTileIterator | MaskedTileIterator)
   typename IteratorB_,
+  /// Iterates over tiles of B operand in global memory
+  //  (concept: ReadableTileIterator | ForwardTileIterator | MaskedTileIterator)
+  typename IteratorB_LDG_,
   /// Iterates over tiles of scale operand in global memory
   typename IteratorScale_,
   /// Iterates over tiles of scale operand in global memory
@@ -42,6 +45,7 @@ class DqMmaSingleStageGemv<
  Shape_,
  IteratorA_,
  IteratorB_,
+ IteratorB_LDG_,
  IteratorScale_,
  IteratorZeroPoint_,
  ElementC_,

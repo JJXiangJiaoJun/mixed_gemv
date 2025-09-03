@@ -101,6 +101,14 @@ struct DefaultMmaCoreGemv<
     kElementsPerAccess
   >;
 
+  using IteratorThreadMapB_LDG = cutlass::transform::threadblock::PitchLinearWarpStripminedThreadMap<
+    cutlass::PitchLinearShape<Shape::kK, WarpCount::kM * UnderlyingWarpThreadArrangement::kStrided>,
+    kThreads,
+    cutlass::PitchLinearShape<WarpCount::kK, WarpCount::kM>,
+    UnderlyingWarpThreadArrangement,
+    kElementsPerAccess
+  >;
+
   using Policy = cutlass::gemm::warp::MmaSimtGemvPolicy<
       cutlass::MatrixShape<UnderlyingWarpThreadArrangement::kStrided,
                            UnderlyingWarpThreadArrangement::kContiguous>,

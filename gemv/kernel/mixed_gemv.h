@@ -54,6 +54,7 @@ public:
     typename Mma::IteratorA::Params params_A;
     typename Mma::IteratorA::TensorRef ref_A;
     typename Mma::IteratorB::Params params_B;
+    typename Mma::IteratorB_LDG::Params params_B_LDG;
     typename Mma::IteratorB::TensorRef ref_B;
     typename Mma::IteratorScale::Params params_scale;
     typename Mma::IteratorScale::TensorRef ref_scale;
@@ -97,6 +98,7 @@ public:
           params_A(ref_A_.layout()),
           ref_A(ref_A_),
           params_B(ref_B_.layout()),
+          params_B_LDG(ref_B_.layout()),
           ref_B(ref_B_),
           params_scale(ref_scale_.layout()),
           ref_scale(ref_scale_),
@@ -183,6 +185,14 @@ public:
     typename Mma::IteratorB iterator_B(
       params.params_B,
       reinterpret_cast<ElementB *>(ptr_B),
+      {params.problem_size.k(), params.problem_size.m() * 4},
+      thread_idx,
+      tb_offset_B
+    );
+
+    typename Mma::IteratorB_LDG iterator_B_LDG(
+      params.params_B_LDG,
+      reinterpret_cast<ElementB *>(ptr_B),
       {params.problem_size.k(), params.problem_size.m()},
       thread_idx,
       tb_offset_B
@@ -210,7 +220,7 @@ public:
 
     accumulators.clear();
 
-    mma(gemm_k_iterations, params.group_size, accumulators, iterator_A, iterator_B, iterator_scale, iterator_zero_point, accumulators);
+    mma(gemm_k_iterations, params.group_size, accumulators, iterator_A, iterator_B, iterator_B_LDG, iterator_scale, iterator_zero_point, accumulators);
 
     ///< accumulator combine
     AccumulatorCombine acc_combine;

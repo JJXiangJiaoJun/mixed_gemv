@@ -171,6 +171,14 @@ public:
                                                               kAlignmentB>;
 
 
+  using IteratorB_LDG =
+      cutlass::transform::threadblock::PredicatedTileIterator<cutlass::MatrixShape<MmaCore::Shape::kK, MmaCore::IteratorThreadMapB_LDG::Shape::kStrided>,
+                                                              ElementB,
+                                                              cutlass::layout::ColumnMajor,
+                                                              0,
+                                                              typename MmaCore::IteratorThreadMapB_LDG,
+                                                              kAlignmentB>;
+
 private:
 
   static constexpr int kRowsInterleaved = LayoutA::kRowsInterleaved;
@@ -223,6 +231,7 @@ public:
       cutlass::gemm::threadblock::DqMmaSingleStageGemv<typename MmaCore::Shape,
                                                        IteratorA,
                                                        IteratorB,
+                                                       IteratorB_LDG,
                                                        IteratorScale,
                                                        IteratorZeroPoint,
                                                        ElementAccumulator,
