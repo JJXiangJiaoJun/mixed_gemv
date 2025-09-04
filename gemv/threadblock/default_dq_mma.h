@@ -49,7 +49,9 @@ template <
     /// Warp thread layout (concept: MatrixShape)
     typename WarpThreadArrangement,
     /// Operation performed by GEMM
-    typename OperatorClass
+    typename OperatorClass,
+    /// Number of stages used in the pipelined mainloop
+    int Stages = 1
 >
 struct DefaultDqMmaGemv;
 

@@ -75,6 +75,8 @@ struct DefaultMmaCoreGemv<
 
   static_assert(WarpThreadArrangement::kCount == kWarpSize, "");
 
+  static_assert(std::is_same_v<ElementA, ElementB>, "");
+
   /// Number of threads total
   static int const kThreads = WarpCount::kCount * kWarpSize;
 
@@ -93,8 +95,10 @@ struct DefaultMmaCoreGemv<
     kElementsPerAccess
   >;
 
+
+  /// broadcast fragment along stride dimension
   using IteratorThreadMapB = cutlass::transform::threadblock::PitchLinearWarpStripminedThreadMap<
-    cutlass::PitchLinearShape<Shape::kK, Shape::kM>,
+    cutlass::PitchLinearShape<Shape::kK, WarpCount::kM * UnderlyingWarpThreadArrangement::kStrided>,
     kThreads,
     cutlass::PitchLinearShape<WarpCount::kK, WarpCount::kM>,
     UnderlyingWarpThreadArrangement,

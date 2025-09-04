@@ -8,7 +8,7 @@
 #include "cutlass/matrix_shape.h"
 
 #include "gemv/threadblock/dq_mma_base.h"
-#include "gemv/threadblock/dq_mma_singlestage.h"
+#include "gemv/threadblock/dq_mma_pipelined.h"
 #include "gemv/warp/warp_dequantizer.h"
 
 namespace cutlass {
@@ -39,7 +39,7 @@ template <
   /// The quantization operator being used
   WeightOnlyQuantOp QuantOp
 >
-class DqMmaSingleStageGemv<
+class DqMmaPipelinedGemv<
  Shape_,
  IteratorA_,
  IteratorB_,
@@ -136,7 +136,7 @@ public:
 
 public:
   CUTLASS_HOST_DEVICE
-  DqMmaSingleStageGemv() {}
+  DqMmaPipelinedGemv() {}
 
 
   CUTLASS_DEVICE
@@ -210,45 +210,44 @@ public:
     OperandBBroadcaster B_broadcaster;
     DqOperator dq_op;
 
-    FragmentA tb_frag_A;
-    FragmentB tb_frag_B;
-    FragmentScale tb_frag_scale;
-    FragmentZeroPoint tb_frag_zero;
+    FragmentA tb_frag_A[2];
+    FragmentB tb_frag_B[2];
+    FragmentScale tb_frag_scale[2];
+    FragmentZeroPoint tb_frag_zero[2];
 
-    TransformFragmentA tb_transform_frag_A;
-    BroadcastedFragmentB tb_broadcasted_frag_B;
+    TransformFragmentA tb_transform_frag_A[2];
+    BroadcastedFragmentB tb_broadcasted_frag_B[2];
 
-    tb_frag_A.clear();
-    tb_frag_B.clear();
-    tb_frag_scale.clear();
-    tb_frag_zero.clear();
+    tb_frag_A[0].clear();
+    tb_frag_A[1].clear();
+    tb_frag_B[0].clear();
+    tb_frag_B[1].clear();
+    tb_frag_scale[0].clear();
+    tb_frag_scale[1].clear();
+    tb_frag_zero[0].clear();
+    tb_frag_zero[1].clear();
 
-    iterator_A.load(tb_frag_A);
+    iterator_A.load(tb_frag_A[0]);
     ++iterator_A;
 
-    iterator_B.load(tb_frag_B);
+    iterator_B.load(tb_frag_B[0]);
     ++iterator_B;
 
-    // iterator_scale.load(tb_frag_scale);
-    // ++iterator_scale;
+    load_scales_zeros_and_advance(iterator_scale, iterator_zero_point, tb_frag_scale[0], tb_frag_zero[0], row_groupsize64, group_size);
 
-    // if constexpr (kHasZeroPoint) {
-    //   iterator_zero_point.load(tb_frag_zero);
-    //   ++iterator_zero_point;
-    // }
+    WarpTileIteratorA warp_tile_iterator_A[2];
+    WarpTileIteratorB warp_tile_iterator_B[2];
 
-    load_scales_zeros_and_advance(iterator_scale, iterator_zero_point, tb_frag_scale, tb_frag_zero, row_groupsize64, group_size);
+    warp_tile_iterator_A[0].reset(tb_transform_frag_A[0]);
+    warp_tile_iterator_A[1].reset(tb_transform_frag_A[1]);
 
-    tb_transform_frag_A = ldg_converter(tb_frag_A);
-    tb_broadcasted_frag_B = B_broadcaster(tb_frag_B);
+    warp_tile_iterator_B[0].reset(tb_broadcasted_frag_B[0]);
+    warp_tile_iterator_B[1].reset(tb_broadcasted_frag_B[1]);
 
-    WarpTileIteratorA warp_tile_iterator_A(tb_transform_frag_A);
-    WarpTileIteratorB warp_tile_iterator_B(tb_broadcasted_frag_B);
+    WarpTileFragmentA warp_tile_frag_A[2];
+    WarpTileFragmentB warp_tile_frag_B[2];
 
-    WarpTileFragmentA warp_tile_frag_A;
-    WarpTileFragmentB warp_tile_frag_B;
-
-    WarpTileFragmentA dq_warp_tile_frag_A;
+    WarpTileFragmentA dq_warp_tile_frag_A[2];
 
     Operator warp_mma;
 
@@ -261,43 +260,17 @@ public:
       iterator_zero_point.clear_mask(gemm_k_iterations <= 1);
     }
 
-    for(; gemm_k_iterations > 0; --gemm_k_iterations) {
+    for(; gemm_k_iterations > 0;) {
 
-      CUTLASS_PRAGMA_UNROLL
-      for (int warp_mma_k = 0; warp_mma_k < kWarpGemmIterations; ++warp_mma_k) {
-
-        warp_tile_iterator_A.load(warp_tile_frag_A);
-        warp_tile_iterator_B.load(warp_tile_frag_B);
-
-        ///< permform dq here
-        dq_warp_tile_frag_A = dq_op(warp_tile_frag_A, tb_frag_scale, tb_frag_zero);
-
-        warp_mma(accum, dq_warp_tile_frag_A, warp_tile_frag_B, accum);
-
-        ++warp_tile_iterator_A;
-        ++warp_tile_iterator_B;
-      }
-
-      warp_tile_iterator_A.reset();
-      warp_tile_iterator_B.reset();
-
-      iterator_A.load(tb_frag_A);
+      ///< Load next buffer
+      iterator_A.load(tb_frag_A[1]);
       ++iterator_A;
 
-      iterator_B.load(tb_frag_B);
+      iterator_B.load(tb_frag_B[1]);
       ++iterator_B;
 
-      // iterator_scale.load(tb_frag_scale);
-      // ++iterator_scale;
+      load_scales_zeros_and_advance(iterator_scale, iterator_zero_point, tb_frag_scale[1], tb_frag_zero[1], row_groupsize64, group_size);
 
-      // if constexpr (kHasZeroPoint) {
-      //   iterator_zero_point.load(tb_frag_zero);
-      //   ++iterator_zero_point;
-      // }
-      load_scales_zeros_and_advance(iterator_scale, iterator_zero_point, tb_frag_scale, tb_frag_zero, row_groupsize64, group_size);
-
-      tb_transform_frag_A = ldg_converter(tb_frag_A);
-      tb_broadcasted_frag_B = B_broadcaster(tb_frag_B);
 
       // Avoid reading out of bounds
       iterator_A.clear_mask(gemm_k_iterations <= 2);
@@ -305,8 +278,77 @@ public:
       iterator_scale.clear_mask(gemm_k_iterations <= 2);
 
       if constexpr (kHasZeroPoint) {
+        iterator_zero_point.clear_mask(gemm_k_iterations <= 2);
+      }
+
+      ///< Mma stage 0
+      tb_transform_frag_A[0] = ldg_converter(tb_frag_A[0]);
+      tb_broadcasted_frag_B[0] = B_broadcaster(tb_frag_B[0]);
+
+      CUTLASS_PRAGMA_UNROLL
+      for (int warp_mma_k = 0; warp_mma_k < kWarpGemmIterations; ++warp_mma_k) {
+
+        warp_tile_iterator_A[0].load(warp_tile_frag_A[0]);
+        warp_tile_iterator_B[0].load(warp_tile_frag_B[0]);
+
+        ///< permform dq here
+        dq_warp_tile_frag_A[0] = dq_op(warp_tile_frag_A[0], tb_frag_scale[0], tb_frag_zero[0]);
+
+        warp_mma(accum, dq_warp_tile_frag_A[0], warp_tile_frag_B[0], accum);
+
+        ++warp_tile_iterator_A[0];
+        ++warp_tile_iterator_B[0];
+      }
+
+      warp_tile_iterator_A[0].reset();
+      warp_tile_iterator_B[0].reset();
+      --gemm_k_iterations;
+
+      ///< Advance next stage
+      iterator_A.load(tb_frag_A[0]);
+      ++iterator_A;
+
+      iterator_B.load(tb_frag_B[0]);
+      ++iterator_B;
+
+      load_scales_zeros_and_advance(iterator_scale, iterator_zero_point, tb_frag_scale[0], tb_frag_zero[0], row_groupsize64, group_size);
+
+      // Avoid reading out of bounds
+      iterator_A.clear_mask(gemm_k_iterations <= 2);
+      iterator_B.clear_mask(gemm_k_iterations <= 2);
+      iterator_scale.clear_mask(gemm_k_iterations <= 2);
+      if constexpr (kHasZeroPoint) {
        iterator_zero_point.clear_mask(gemm_k_iterations <= 2);
       }
+
+
+      if (gemm_k_iterations > 0) {
+
+        ///< Mma stage 1
+        tb_transform_frag_A[1] = ldg_converter(tb_frag_A[1]);
+        tb_broadcasted_frag_B[1] = B_broadcaster(tb_frag_B[1]);
+
+        CUTLASS_PRAGMA_UNROLL
+        for (int warp_mma_k = 0; warp_mma_k < kWarpGemmIterations; ++warp_mma_k) {
+
+          warp_tile_iterator_A[1].load(warp_tile_frag_A[1]);
+          warp_tile_iterator_B[1].load(warp_tile_frag_B[1]);
+
+          ///< permform dq here
+          dq_warp_tile_frag_A[1] = dq_op(warp_tile_frag_A[1], tb_frag_scale[1], tb_frag_zero[1]);
+
+          warp_mma(accum, dq_warp_tile_frag_A[1], warp_tile_frag_B[1], accum);
+
+          ++warp_tile_iterator_A[1];
+          ++warp_tile_iterator_B[1];
+        }
+
+        warp_tile_iterator_A[1].reset();
+        warp_tile_iterator_B[1].reset();
+      }
+
+      --gemm_k_iterations;
+
     }
   }
 

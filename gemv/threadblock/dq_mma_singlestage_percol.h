@@ -7,6 +7,7 @@
 #include "cutlass/numeric_types.h"
 #include "cutlass/matrix_shape.h"
 
+#include "gemv/threadblock/dq_mma_base.h"
 #include "gemv/threadblock/dq_mma_singlestage.h"
 #include "gemv/warp/warp_dequantizer.h"
 
@@ -50,8 +51,30 @@ class DqMmaSingleStageGemv<
  TransformAfterLDG_,
  QuantOp,
  std::enable_if_t<!isFinegrained(QuantOp)>
-> {
+> : public DqMmaBase<
+ Shape_,
+ IteratorA_,
+ IteratorB_,
+ IteratorScale_,
+ IteratorZeroPoint_,
+ ElementC_,
+ LayoutC_,
+ Policy_,
+ TransformAfterLDG_
+>  {
 public:
+
+  using Base = DqMmaBase<
+                        Shape_,
+                        IteratorA_,
+                        IteratorB_,
+                        IteratorScale_,
+                        IteratorZeroPoint_,
+                        ElementC_,
+                        LayoutC_,
+                        Policy_,
+                        TransformAfterLDG_>;
+
   using Shape = Shape_;             ///< Size of the Gemm problem - concept: gemm::GemmShape<>
   using IteratorA = IteratorA_;     ///< Iterates over tiles of A operand in global memory
   using IteratorB = IteratorB_;     ///< Iterates over tiles of B operand in global memory
@@ -71,6 +94,8 @@ public:
   using FragmentZeroPoint = typename IteratorZeroPoint::Fragment;
 
   using TransformFragmentA = typename TransformAfterLDG::result_type;
+  using OperandBBroadcaster = typename Base::OperandBBroadcaster;
+  using BroadcastedFragmentB = typename Base::BroadcastedFragmentB;
 
   /// Fragment of accumulator tile
   using FragmentC = typename Operator::FragmentC;
@@ -128,6 +153,7 @@ public:
     accum = src_accum;
 
     TransformAfterLDG ldg_converter;
+    OperandBBroadcaster B_broadcaster;
     DqOperator dq_op;
 
     FragmentA tb_frag_A;
@@ -136,6 +162,7 @@ public:
     FragmentZeroPoint tb_frag_zero;
 
     TransformFragmentA tb_transform_frag_A;
+    BroadcastedFragmentB tb_broadcasted_frag_B;
 
     tb_frag_A.clear();
     tb_frag_B.clear();
@@ -157,9 +184,10 @@ public:
     }
 
     tb_transform_frag_A = ldg_converter(tb_frag_A);
+    tb_broadcasted_frag_B = B_broadcaster(tb_frag_B);
 
     WarpTileIteratorA warp_tile_iterator_A(tb_transform_frag_A);
-    WarpTileIteratorB warp_tile_iterator_B(tb_frag_B);
+    WarpTileIteratorB warp_tile_iterator_B(tb_broadcasted_frag_B);
 
     WarpTileFragmentA warp_tile_frag_A;
     WarpTileFragmentB warp_tile_frag_B;
@@ -204,6 +232,7 @@ public:
       ++iterator_B;
 
       tb_transform_frag_A = ldg_converter(tb_frag_A);
+      tb_broadcasted_frag_B = B_broadcaster(tb_frag_B);
 
       // Avoid reading out of bounds
       iterator_A.clear_mask(gemm_k_iterations <= 2);

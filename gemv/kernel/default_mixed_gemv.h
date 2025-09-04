@@ -57,7 +57,9 @@ template <
     /// Warp thread layout (concept: MatrixShape)
     typename WarpThreadArrangement,
     /// Epilogue output operator
-    typename EpilogueOutputOp
+    typename EpilogueOutputOp,
+    /// Number of stages used in the pipelined mainloop
+    int Stages = 1
 >
 struct DefaultMixedGemv;
 
@@ -89,7 +91,9 @@ template<
   /// Warp thread layout (concept: MatrixShape)
   typename WarpThreadArrangement,
   /// Epilogue output operator
-  typename EpilogueOutputOp
+  typename EpilogueOutputOp,
+  /// Number of stages used in the pipelined mainloop
+  int Stages
 >
 struct DefaultMixedGemv<
  ElementA,
@@ -111,7 +115,8 @@ struct DefaultMixedGemv<
  WarpShape,
  GemmShape<1, 1, 1>,
  WarpThreadArrangement,
- EpilogueOutputOp
+ EpilogueOutputOp,
+ Stages
 > {
   using DefaultMma =
       typename cutlass::gemm::threadblock::DefaultDqMmaGemv<ElementA,
@@ -130,7 +135,8 @@ struct DefaultMixedGemv<
                                                             WarpShape,
                                                             GemmShape<1, 1, 1>,
                                                             WarpThreadArrangement,
-                                                            arch::OpClassSimt>;
+                                                            arch::OpClassSimt,
+                                                            Stages>;
   using MmaCore = typename DefaultMma::MmaCore;
   using Mma = typename DefaultMma::ThreadBlockMma;
 
