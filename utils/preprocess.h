@@ -17,7 +17,7 @@ template<
  typename ElementSubbyte,
  typename ElementUnpacked,
  int SubbyteBits = cutlass::sizeof_bits<ElementSubbyte>::value,
- int Signed = ElementSubbyte::kSigned
+ bool Signed = true
 >
 struct SubBytePacker;
 
@@ -307,21 +307,22 @@ public:
 
     using ElementAccess = typename host::AccessTypeDeduce<kBitsPerAccess>::type;
 
-    if (shape.size() != 2) {
-      std::cout << "Shape must be 2-D, but got " << shape.size();
+    if (shape.size() != 2 && shape.size() != 3) {
+      std::cout << "interleave_row_major_tensor_impl Shape must be 2-D or 3-D, but got " << shape.size() << std::endl;
       exit(-1);
     }
 
-    size_t num_rows = shape[0];
-    size_t num_columns = shape[1];
+    const size_t num_experts = shape.size() == 2 ? 1 : shape[0];
+    const size_t num_rows = shape.size() == 2 ? shape[0] : shape[1];
+    const size_t num_columns = shape.size() == 2 ? shape[1] : shape[2];
 
     if (num_rows % kInterleave) {
-      std::cout << "Shape Row must be divided by interleave: " << kInterleave << ", but got " << num_rows;
+      std::cout << "Shape Row must be divided by interleave: " << kInterleave << ", but got " << num_rows  << std::endl;
       exit(-1);
     }
 
     if (num_columns % kElementsPerAccess) {
-      std::cout << "Shape columns must be divided by kElementsPerAccess: " << kElementsPerAccess << ", but got " << num_columns;
+      std::cout << "Shape columns must be divided by kElementsPerAccess: " << kElementsPerAccess << ", but got " << num_columns  << std::endl;
       exit(-1);
     }
 
@@ -330,13 +331,18 @@ public:
     ElementAccess const * input_ptr = reinterpret_cast<ElementAccess const *>(quantized_tensor);
     ElementAccess * output_ptr = reinterpret_cast<ElementAccess *>(interleaved_quantized_tensor);
 
-    for (int64_t r = 0; size_t(r) < num_rows; ++r) {
-      for (int64_t c = 0; c < int64_t(num_columns_in_access); ++c) {
-        int64_t input_offset  = r * num_columns_in_access + c;
-        int64_t row_major = r / kInterleave;
-        int64_t row_minor = r % kInterleave;
-        int64_t output_offset = row_major * (num_columns_in_access * kInterleave) + c * kInterleave + row_minor;
-        *(output_ptr + output_offset) = *(input_ptr + input_offset);
+    for (size_t expert = 0; expert < num_experts; ++expert) {
+
+      const size_t matrix_offset = expert * num_rows * num_columns_in_access;
+
+      for (int64_t r = 0; size_t(r) < num_rows; ++r) {
+        for (int64_t c = 0; c < int64_t(num_columns_in_access); ++c) {
+          int64_t input_offset  = matrix_offset + r * num_columns_in_access + c;
+          int64_t row_major = r / kInterleave;
+          int64_t row_minor = r % kInterleave;
+          int64_t output_offset = matrix_offset + row_major * (num_columns_in_access * kInterleave) + c * kInterleave + row_minor;
+          *(output_ptr + output_offset) = *(input_ptr + input_offset);
+        }
       }
     }
   }
@@ -350,7 +356,7 @@ public:
     }
     else
     {
-        std::cout << "interleave_row_major_tensor invalid Quant Type : " << int(quant_type);
+        std::cout << "interleave_row_major_tensor invalid Quant Type : " << int(quant_type) << std::endl;
         exit(-1);
     }
   }
@@ -477,8 +483,8 @@ public:
                   std::vector<size_t> const& shape, LayoutType weight_layout,
                   QuantType quant_type, bool force_interleave) {
 
-    if (shape.size() != 2) {
-      std::cout << "Mixed-Gemv weight Shape must be 2-D, " << shape.size();
+    if (shape.size() != 2 && shape.size() != 3) {
+      std::cout << "Mixed-Gemv weight Shape must be 2-D or 3-D" << shape.size() << std::endl;
       exit(-1);
     }
 
@@ -497,13 +503,14 @@ public:
     std::vector<size_t> weight_shape = shape;
 
     // Works on row major data, so issue this permutation first
+    // [K, M] RowMajor to [K, M] ColMajor
     if (weight_layout == LayoutType::kRowMajor)
     {
         SubbyteWeightProcessor::subbyte_transpose(dst_buf.data(), src_buf.data(), weight_shape, quant_type);
         src_buf.swap(dst_buf);
     }
 
-    ///< transposed
+    ///< transposed [K, M] --> [M, K]
     std::swap(weight_shape[weight_shape.size() - 1], weight_shape[weight_shape.size() - 2]);
 
     ///< interleaved (M, K) row-major
